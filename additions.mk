@@ -1,5 +1,5 @@
 # Generic overlays
-PRODUCT_PACKAGE_OVERLAYS += device/generic/car/common/overlay
+PRODUCT_PACKAGE_OVERLAYS += device/generic/car/common/overlay device/snappautomotive/common/overlay
 
 # Snapp Maps
 PRODUCT_PACKAGES += osmdroid
