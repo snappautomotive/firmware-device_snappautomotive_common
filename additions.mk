@@ -2,7 +2,7 @@
 PRODUCT_PACKAGE_OVERLAYS += device/generic/car/common/overlay
 
 # Snapp Maps
-PRODUCT_PACKAGES += SnappMaps
+PRODUCT_PACKAGES += osmdroid
 
 # Boot Animation
 PRODUCT_COPY_FILES += \
