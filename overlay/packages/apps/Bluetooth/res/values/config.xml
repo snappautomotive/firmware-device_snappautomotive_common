@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:xliff="urn:oasis:names:tc:xliff:document:1.2">
+  <!-- Disable the default phone policy, according to https://source.android.com/docs/devices/automotive/ivi_connectivity#implement-connection-management --> 
+  <bool name="enable_phone_policy" translatable="false">false</bool>
+</resources>
