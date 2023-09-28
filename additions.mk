@@ -5,7 +5,9 @@ PRODUCT_PACKAGE_OVERLAYS += device/snappautomotive/common/overlay
 $(call inherit-product-if-exists, vendor/snappautomotive/non_public/additions.mk)
 
 # Snapp Maps
-PRODUCT_PACKAGES += osmdroid
+PRODUCT_PACKAGES += \
+       osmdroid \
+       aosp-template-host
 
 # Boot Animation
 OVERRIDE_BOOT_ANIMATION=true
