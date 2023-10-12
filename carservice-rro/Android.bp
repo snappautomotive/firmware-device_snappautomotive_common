@@ -1,0 +1,6 @@
+runtime_resource_overlay {
+    name: "CarServiceOverlay",
+    resource_dirs: ["res"],
+    manifest: "AndroidManifest.xml",
+    sdk_version: "current",
+}

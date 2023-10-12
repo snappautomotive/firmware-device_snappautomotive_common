@@ -6,6 +6,7 @@ $(call inherit-product-if-exists, vendor/snappautomotive/non_public/additions.mk
 
 # Snapp Provided Packages
 PRODUCT_PACKAGES += \
+	CarServiceOverlay \
 	osmdroid \
 	aosp-template-host
 

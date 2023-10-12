@@ -1,0 +1,3 @@
+<overlay>
+    <item target="string/config_userNoticeUiService" value="@string/config_userNoticeUiService"/>
+</overlay>
