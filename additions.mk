@@ -9,6 +9,12 @@ PRODUCT_PACKAGES += \
 	osmdroid \
 	aosp-template-host
 
+# Allow 10s for the Emulator VHAL to respond to the car watchdog
+# Ref: https://android.googlesource.com/device/generic/car/+/4ca4eaed9e46047c306698d65deb1f6bfad9dfa7%5E%21/#F0
+PRODUCT_PRODUCT_PROPERTIES += \
+    ro.carwatchdog.vhal_healthcheck.interval=10
+
 # Boot Animation
+OVERRIDE_BOOT_ANIMATION=true
 PRODUCT_COPY_FILES += \
     device/snappautomotive/common/bootanimations/bootanimation.zip:system/media/bootanimation.zip
