@@ -4,4 +4,8 @@
     <string-array name="config_locationExtraPackageNames" translatable="false">
          <item>com.snappautomotive.maps</item>
     </string-array>
+
+    <!-- The device supports freeform window management. Windows have title bars and can be moved
+         and resized.-->
+    <bool name="config_freeformWindowManagement">true</bool>
 </resources>
