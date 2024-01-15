@@ -4,6 +4,13 @@
     <string-array name="config_locationExtraPackageNames" translatable="false">
          <item>com.snappautomotive.maps</item>
     </string-array>
+    
+    <!-- True if the device supports at least one form of multi-window.
+         E.g. freeform, split-screen, picture-in-picture. -->
+    <bool name="config_supportsMultiWindow">true</bool>
+    
+    <!-- True if the device supports split screen as a form of multi-window. -->
+    <bool name="config_supportsSplitScreenMultiWindow">true</bool>
 
     <!-- The device supports freeform window management. Windows have title bars and can be moved
          and resized.-->
