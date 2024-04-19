@@ -1,4 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
 <resources xmlns:xliff="urn:oasis:names:tc:xliff:document:1.2">
   <!-- Turn off the initial boot notice -->
   <string name="config_userNoticeUiService" translatable="false" />
+
+  <!-- The camera Activity name for EVS, if defined, the Activity will be launched by CarEvsService. -->
+  <string name="config_evsCameraActivity" translatable="false">
+    com.google.android.car.evs/com.google.android.car.evs.CarEvsCameraPreviewActivity
+  </string>
 </resources>
