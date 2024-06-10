@@ -5,6 +5,10 @@ ifndef BUILD_VARIANT
   BUILD_VARIANT := snappautomotive
 endif
 
+ifndef BUILD_VARIANT
+  BUILD_VARIANT := snappautomotive
+endif
+
 # Add non-public overlays if they exist
 $(call inherit-product-if-exists, vendor/$(BUILD_VARIANT)/non_public/additions.mk)
 $(call inherit-product-if-exists, vendor/$(BUILD_VARIANT)/bootanimation/bootanimation.mk)
