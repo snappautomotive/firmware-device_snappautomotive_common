@@ -7,6 +7,7 @@ endif
 
 # Add non-public overlays if they exist
 $(call inherit-product-if-exists, vendor/$(BUILD_VARIANT)/non_public/additions.mk)
+$(call inherit-product-if-exists, vendor/$(BUILD_VARIANT)/bootanimation/bootanimation.mk)
 
 # Snapp Provided Packages
 PRODUCT_PACKAGES += \
@@ -15,6 +16,8 @@ PRODUCT_PACKAGES += \
 	aosp-template-host
 
 # Boot Animation
-OVERRIDE_BOOT_ANIMATION=true
-PRODUCT_COPY_FILES += \
+ifndef OVERRIDE_BOOT_ANIMATION
+  OVERRIDE_BOOT_ANIMATION=true
+  PRODUCT_COPY_FILES += \
     device/snappautomotive/common/bootanimations/bootanimation.zip:system/media/bootanimation.zip
+endif
