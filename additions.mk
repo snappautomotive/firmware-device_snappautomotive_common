@@ -12,6 +12,7 @@ $(call inherit-product-if-exists, vendor/$(BUILD_VARIANT)/bootanimation/bootanim
 # Snapp Provided Packages
 PRODUCT_PACKAGES += \
 	CarServiceOverlay \
+	NoUICarProvision \
 	osmdroid \
 	aosp-template-host
 
