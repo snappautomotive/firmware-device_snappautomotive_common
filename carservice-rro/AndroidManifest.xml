@@ -4,7 +4,7 @@
     <application android:hasCode="false" />
     <overlay
         android:priority="4001"
-        android:targetPackage="com.android.car.updatable"
+        android:targetPackage="com.android.car"
         android:targetName="CarServiceCustomization"
         android:resourcesMap="@xml/overlays"
         android:isStatic="true" />
