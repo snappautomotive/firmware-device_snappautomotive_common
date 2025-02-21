@@ -31,3 +31,5 @@ ifndef OVERRIDE_BOOT_ANIMATION
   PRODUCT_COPY_FILES += \
     device/snappautomotive/common/bootanimations/bootanimation.zip:system/media/bootanimation.zip
 endif
+
+PRODUCT_CHARACTERISTICS := automotive
