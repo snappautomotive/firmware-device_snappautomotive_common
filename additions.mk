@@ -1,9 +1,8 @@
 # Generic overlays
 PRODUCT_PACKAGE_OVERLAYS += device/snappautomotive/common/overlay
 
-ifndef BUILD_VARIANT
-  BUILD_VARIANT := snappautomotive
-endif
+# Mark the build as AAOS for string processing purposes
+PRODUCT_CHARACTERISTICS := automotive
 
 ifndef BUILD_VARIANT
   BUILD_VARIANT := snappautomotive
@@ -31,5 +30,3 @@ ifndef OVERRIDE_BOOT_ANIMATION
   PRODUCT_COPY_FILES += \
     device/snappautomotive/common/bootanimations/bootanimation.zip:system/media/bootanimation.zip
 endif
-
-PRODUCT_CHARACTERISTICS := automotive
