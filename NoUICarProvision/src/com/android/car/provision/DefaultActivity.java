@@ -137,269 +137,436 @@
 
      @Override
      protected void onCreate(Bundle icicle) {
-         super.onCreate(icicle);
+        super.onCreate(icicle);
 
-         int userId = getUserId();
-         Log.i(TAG, "onCreate() for user " + userId + " Intent: " + getIntent());
+        int userId = getUserId();
+        Log.i(TAG, "onCreate() for user " + userId + " Intent: " + getIntent());
 
-         if (userId == UserHandle.USER_SYSTEM && UserManager.isHeadlessSystemUserMode()) {
-             // System user will be provisioned together with the first non-system user
-             Log.i(TAG, "onCreate(): skipping setup on headless system user");
-             disableSelfAndFinish();
-             return;
-         }
+        if (userId == UserHandle.USER_SYSTEM && UserManager.isHeadlessSystemUserMode()) {
+            // System user will be provisioned together with the first non-system user
+            Log.i(TAG, "onCreate(): skipping setup on headless system user");
+            disableSelfAndFinish();
+            return;
+        }
 
-         finishSetup();
+        DevicePolicyManager dpm = getSystemService(DevicePolicyManager.class);
+        if (dpm.isDeviceManaged()) {
+            Log.i(TAG, "onCreate(): skipping UI on managed device");
+            finishSetup();
+            return;
+        }
+ 
+        setManagedProvisioning(dpm);
+        startMonitor();
+        finishSetup();
      }
 
-     private boolean checkDpcAppExists(String dpcApp) {
-         if (!checkAppExists(dpcApp, UserHandle.USER_SYSTEM)) return false;
-         if (!checkAppExists(dpcApp, getUserId())) return false;
-         return true;
-     }
+     private void startMonitor() {
+        Log.d(TAG, "startMonitor()");
+        registerReceiver(mDrivingStateExitReceiver,
+                new IntentFilter(CarDrivingStateMonitor.EXIT_BROADCAST_ACTION));
 
-     private boolean checkAppExists(String app, int userId) {
-         Log.d(TAG, "Checking if " + app + " exits for user " + userId);
-         try {
-             PackageInfo info = getPackageManager().getPackageInfoAsUser(app, /* flags= */ 0,
-                     userId);
-             if (info == null) {
-                 Log.i(TAG, "No app " + app + " for user " + userId);
-                 return false;
-             }
-             Log.d(TAG, "Found it: " + info);
-             return true;
-         } catch (PackageManager.NameNotFoundException e) {
-             return false;
-         } catch (Exception e) {
-             Log.e(TAG, "Error checking if " + app + " exists for user " + userId, e);
-             return false;
-         }
-     }
+        mCarDrivingStateMonitor = CarDrivingStateMonitor.get(this);
+        mCarDrivingStateMonitor.startMonitor();
+    }
 
-     private void finishSetup() {
-         Log.i(TAG, "finishing setup for user " + getUserId());
-         provisionUserAndDevice();
-         disableSelfAndFinish();
-     }
+    @Override
+    public void finish() {
+        Log.i(TAG, "finish() for user " + getUserId());
 
-     private void provisionUserAndDevice() {
-         Log.d(TAG, "setting Settings properties");
-         // Add a persistent setting to allow other apps to know the device has been provisioned.
-         if (!isDeviceProvisioned()) {
-             Settings.Global.putInt(getContentResolver(), Settings.Global.DEVICE_PROVISIONED, 1);
-         }
+        stopMonitor();
 
-         maybeMarkSystemUserSetupComplete();
-         Log.v(TAG, "Marking USER_SETUP_COMPLETE for user " + getUserId());
-         markUserSetupComplete(this);
+        super.finish();
+    };
 
-         // Set car-specific properties
-         setCarSetupInProgress(false);
-         Settings.Secure.putInt(getContentResolver(), KEY_ENABLE_INITIAL_NOTICE_SCREEN_TO_USER, 0);
-     }
+    @Override
+    public void dump(String prefix, FileDescriptor fd, PrintWriter pw, String[] args) {
+        if (args == null || args.length == 0) {
+            showDpcs(pw);
+            showHelp(pw);
+            return;
+        }
 
-     private boolean isDeviceProvisioned() {
-         try {
-             return Settings.Global.getInt(getContentResolver(),
-                     Settings.Global.DEVICE_PROVISIONED) == 1;
-         } catch (SettingNotFoundException e) {
-             Log.wtf(TAG, "DEVICE_PROVISIONED is not found.");
-             return false;
-         }
-     }
+        if (args[0].equals("--help")) {
+            showHelp(pw);
+            return;
+        }
 
-     private boolean isUserSetupComplete(Context context) {
-         return Settings.Secure.getInt(context.getContentResolver(),
-                 Settings.Secure.USER_SETUP_COMPLETE, /* default= */ 0) == 1;
-     }
+        addDpc(pw, args);
+    };
 
-     private void maybeMarkSystemUserSetupComplete() {
-         Context systemUserContext = getApplicationContext().createContextAsUser(
-                 UserHandle.SYSTEM, /* flags= */ 0);
-         if (!isUserSetupComplete(systemUserContext) && getUserId() != UserHandle.USER_SYSTEM
-                 && UserManager.isHeadlessSystemUserMode()) {
-             Log.v(TAG, "Marking USER_SETUP_COMPLETE for system user");
-             markUserSetupComplete(systemUserContext);
-         }
-     }
+    private void showDpcs(PrintWriter pw) {
+        pw.printf("%d DPCs\n", sSupportedDpcApps.size());
+        sSupportedDpcApps.forEach((dpc) -> pw.printf("\t%s\n", dpc));
+    }
 
-     private void setCarSetupInProgress(boolean inProgress) {
-         Settings.Secure.putInt(getContentResolver(), KEY_SETUP_WIZARD_IN_PROGRESS,
-                 inProgress ? 1 : 0);
-     }
+    private void showHelp(PrintWriter pw) {
+        pw.println("\nTo add a new DPC, use: --name name --package-name package-name"
+                + "--receiver-name receiver-name [--legacy-activity-name legacy-activity-name] "
+                + "[--checksum checksum] [--download-url download-url]");
+    }
 
-     private void markUserSetupComplete(Context context) {
-         Settings.Secure.putInt(context.getContentResolver(),
-                 Settings.Secure.USER_SETUP_COMPLETE, 1);
-     }
+    private void addDpc(PrintWriter pw, String[] args) {
+        String name = null;
+        String packageName = null;
+        String legacyActivityName = null;
+        String receiverName = null;
+        String checkSum = null;
+        String downloadUrl = null;
 
-     private void exitSetup() {
-         Log.d(TAG, "exiting setup early for user " + getUserId());
-         provisionUserAndDevice();
-         notifySetupExited();
-         disableSelfAndFinish();
-     }
+        for (int i = 0; i < args.length; i++) {
+            try {
+                switch (args[i]) {
+                    case "--name":
+                        name = args[++i];
+                        break;
+                    case "--package-name":
+                        packageName = args[++i];
+                        break;
+                    case "--legacy-activity-name":
+                        legacyActivityName = args[++i];
+                        break;
+                    case "--receiver-name":
+                        receiverName = args[++i];
+                        break;
+                    case "--checksum":
+                        checkSum = args[++i];
+                        break;
+                    case "--download-url":
+                        downloadUrl = args[++i];
+                        break;
+                    default:
+                        pw.printf("Invalid option at index %d: %s\n", i, args[i]);
+                        return;
+                }
+            } catch (Exception e) {
+                // most likely a missing arg...
+                pw.printf("Error handing arg %d: %s\n", i, e);
+                return;
+            }
+        }
 
-     private void notifySetupExited() {
-         Log.d(TAG, "Sending exited setup notification");
+        DpcInfo dpc = new DpcInfo(name, packageName, legacyActivityName, receiverName, checkSum,
+                downloadUrl);
+        Log.i(TAG, "Adding new DPC from dump(): " + dpc);
+        sSupportedDpcApps.add(dpc);
+        pw.printf("Added new DPC: %s\n", dpc);
 
-         NotificationManager notificationMgr = getSystemService(NotificationManager.class);
-         notificationMgr.createNotificationChannel(new NotificationChannel(
-                 IMPORTANCE_DEFAULT_ID, "Importance Default",
-                 NotificationManager.IMPORTANCE_DEFAULT));
-         Notification notification = new Notification
-                 .Builder(this, IMPORTANCE_DEFAULT_ID)
-                 .setContentTitle(getString(R.string.exited_setup_title))
-                 .setContentText(getString(R.string.exited_setup_content))
-                 .setCategory(Notification.CATEGORY_CAR_INFORMATION)
-                 .setSmallIcon(R.drawable.car_ic_mode)
-                 .build();
-         notificationMgr.notify(NOTIFICATION_ID, notification);
-     }
+        updateUi();
+    }
 
-     private DpcInfo getSelectedDpcInfo() {
-         return sSupportedDpcApps.get(mDpcAppsSpinner.getSelectedItemPosition());
-     }
+    private void stopMonitor() {
+        Log.d(TAG, "stopMonitor()");
 
-     private void launchLegacyProvisioningWorkflow() {
-         DpcInfo dpcInfo = getSelectedDpcInfo();
-         if (!checkDpcAppExists(dpcInfo.packageName)) {
-             showErrorMessage("Cannot provision device because " + dpcInfo.packageName
-                     + " is not available.\n Make sure it's installed for both user 0 and user "
-                     + getUserId());
-             return;
-         }
+        if (mCarDrivingStateMonitor == null) {
+            // Happens when device is managed (and startMonitor() is skipped)
+            Log.d(TAG, "Already stopped (or never stopped)");
+            return;
+        }
 
-         Intent intent = new Intent();
-         intent.setComponent(dpcInfo.getLegacyActivityComponentName());
-         Log.i(TAG, "Provisioning device using LEGACY workflow while running as user "
-                 + getUserId() + ". DPC: " + dpcInfo + ". Intent: " + intent);
-         startActivityForResult(intent, REQUEST_CODE_STEP1);
-     }
+        if (mDrivingStateExitReceiver != null) {
+            unregisterReceiver(mDrivingStateExitReceiver);
+        }
 
-     private void launchProvisioningWorkflow() {
-         DpcInfo dpcInfo = getSelectedDpcInfo();
+        mCarDrivingStateMonitor.stopMonitor();
+        mCarDrivingStateMonitor = null;
+    }
 
-         Intent intent = new Intent(ACTION_PROVISION_MANAGED_DEVICE_FROM_TRUSTED_SOURCE);
-         // TODO(b/170333009): add a UI with options for EXTRA_PROVISIONING_TRIGGER.
-         intent.putExtra(EXTRA_PROVISIONING_TRIGGER, PROVISIONING_TRIGGER_QR_CODE);
-         intent.putExtra(EXTRA_PROVISIONING_DEVICE_ADMIN_COMPONENT_NAME,
-                 dpcInfo.getAdminReceiverComponentName());
-         if (dpcInfo.checkSum != null) {
-             intent.putExtra(EXTRA_PROVISIONING_DEVICE_ADMIN_SIGNATURE_CHECKSUM, dpcInfo.checkSum);
-         }
-         if (dpcInfo.downloadUrl != null) {
-             intent.putExtra(EXTRA_PROVISIONING_DEVICE_ADMIN_PACKAGE_DOWNLOAD_LOCATION,
-                     dpcInfo.downloadUrl);
-         }
+    private void updateUi() {
+        String[] appNames = new String[sSupportedDpcApps.size()];
+        for (int i = 0; i < sSupportedDpcApps.size(); i++) {
+            appNames[i] = sSupportedDpcApps.get(i).name;
+        }
+        mDpcAppsSpinner.setAdapter(new ArrayAdapter<String>(this,
+                android.R.layout.simple_spinner_item, appNames));
+        mDpcAppsSpinner.setSelection(appNames.length - 1);
+    }
 
-         Log.i(TAG, "Provisioning device using NEW workflow while running as user "
-                 + getUserId() + ". DPC: " + dpcInfo + ". Intent: " + intent);
+    private void setManagedProvisioning(DevicePolicyManager dpm) {
+        if (!getPackageManager()
+                .hasSystemFeature(PackageManager.FEATURE_DEVICE_ADMIN)) {
+            Log.i(TAG, "Disabling provisioning buttons because device does not have the "
+                    + PackageManager.FEATURE_DEVICE_ADMIN + " feature");
+            return;
+        }
+        if (!dpm.isProvisioningAllowed(DevicePolicyManager.ACTION_PROVISION_MANAGED_DEVICE)) {
+            Log.w(TAG, "Disabling provisioning buttons because device cannot be provisioned - "
+                    + "it can only be set on first boot");
+            return;
+        }
 
-         startActivityForResult(intent, REQUEST_CODE_STEP1);
-     }
+        mProvisioningWorkflowButton.setEnabled(true);
+        mLegacyProvisioningWorkflowButton.setEnabled(true);
+    }
 
-     private void disableSelfAndFinish() {
-         Log.d(TAG, "disableSelfAndFinish()");
+    private boolean checkDpcAppExists(String dpcApp) {
+        if (!checkAppExists(dpcApp, UserHandle.USER_SYSTEM)) return false;
+        if (!checkAppExists(dpcApp, getUserId())) return false;
+        return true;
+    }
 
-         // Remove this activity from the package manager.
-         PackageManager pm = getPackageManager();
-         ComponentName name = new ComponentName(this, DefaultActivity.class);
-         Log.i(TAG, "Disabling itself (" + name + ") for user " + getUserId());
-         pm.setComponentEnabledSetting(name, PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
-                 PackageManager.DONT_KILL_APP);
+    private boolean checkAppExists(String app, int userId) {
+        Log.d(TAG, "Checking if " + app + " exits for user " + userId);
+        try {
+            PackageInfo info = getPackageManager().getPackageInfoAsUser(app, /* flags= */ 0,
+                    userId);
+            if (info == null) {
+                Log.i(TAG, "No app " + app + " for user " + userId);
+                return false;
+            }
+            Log.d(TAG, "Found it: " + info);
+            return true;
+        } catch (PackageManager.NameNotFoundException e) {
+            return false;
+        } catch (Exception e) {
+            Log.e(TAG, "Error checking if " + app + " exists for user " + userId, e);
+            return false;
+        }
+    }
 
-         finish();
-     }
+    private void finishSetup() {
+        Log.i(TAG, "finishing setup for user " + getUserId());
+        provisionUserAndDevice();
+        disableSelfAndFinish();
+    }
 
-     @Override
-     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
-         Log.d(TAG, "onActivityResult(): request=" + requestCode + ", result="
-                 + resultCodeToString(resultCode) + ", data=" + data);
+    private void factoryReset() {
+        new AlertDialog.Builder(this).setMessage(R.string.factory_reset_warning)
+            .setPositiveButton(android.R.string.ok, (d, w)->sendFactoryResetIntent())
+            .show();
+    }
 
-         switch (requestCode) {
-             case REQUEST_CODE_STEP1:
-                 onProvisioningStep1Result(resultCode);
-                 break;
-             case REQUEST_CODE_STEP2_PO:
-             case REQUEST_CODE_STEP2_DO:
-                 onProvisioningStep2Result(requestCode, resultCode);
-                 break;
-             default:
-                 showErrorMessage("onActivityResult(): invalid request code " + requestCode);
+    private void sendFactoryResetIntent() {
+        provisionUserAndDevice();
 
-         }
-     }
+        Intent intent = new Intent(Intent.ACTION_FACTORY_RESET);
+        intent.setPackage("android");
+        intent.addFlags(Intent.FLAG_RECEIVER_FOREGROUND);
+        intent.putExtra(Intent.EXTRA_REASON, "Requested by user on SUW");
 
-     private void onProvisioningStep1Result(int resultCode) {
-         int requestCodeStep2;
-         switch (resultCode) {
-             case RESULT_CODE_PROFILE_OWNER_SET:
-                 requestCodeStep2 = REQUEST_CODE_STEP2_PO;
-                 break;
-             case RESULT_CODE_DEVICE_OWNER_SET:
-                 requestCodeStep2 = REQUEST_CODE_STEP2_DO;
-                 break;
-             default:
-                 showErrorMessage("onProvisioningStep1Result(): invalid result code "
-                         + resultCodeToString(resultCode)
-                         + getManagedProvisioningFailureWarning());
-                 return;
-         }
-         Intent intent = new Intent(PROVISION_FINALIZATION_INSIDE_SUW)
-                 .addCategory(Intent.CATEGORY_DEFAULT);
-         Log.i(TAG, "Finalizing DPC with " + intent);
-         startActivityForResult(intent, requestCodeStep2);
-     }
+        Log.i(TAG, "factory resetting device with intent " + intent);
+        sendBroadcast(intent);
 
-     private String getManagedProvisioningFailureWarning() {
-         return "\n\n" + getString(R.string.provision_failure_message);
-     }
+        disableSelfAndFinish();
+    }
 
-     private void onProvisioningStep2Result(int requestCode, int resultCode) {
-         boolean doMode = requestCode == REQUEST_CODE_STEP2_DO;
-         if (resultCode != RESULT_OK) {
-             StringBuilder message = new StringBuilder("onProvisioningStep2Result(): "
-                     + "invalid result code ").append(resultCode);
-             if (doMode) {
-                 message.append(getManagedProvisioningFailureWarning());
-             }
-             showErrorMessage(message.toString());
-             return;
-         }
+    private void provisionUserAndDevice() {
+        Log.d(TAG, "setting Settings properties");
+        // Add a persistent setting to allow other apps to know the device has been provisioned.
+        if (!isDeviceProvisioned()) {
+            Settings.Global.putInt(getContentResolver(), Settings.Global.DEVICE_PROVISIONED, 1);
+        }
 
-         Log.i(TAG, (doMode ? "Device owner" : "Profile owner") + " mode provisioned!");
-         finishSetup();
-     }
+        maybeMarkSystemUserSetupComplete();
+        Log.v(TAG, "Marking USER_SETUP_COMPLETE for user " + getUserId());
+        markUserSetupComplete(this);
 
-     private static String resultCodeToString(int resultCode)  {
-         StringBuilder result = new StringBuilder();
-         switch (resultCode) {
-             case RESULT_OK:
-                 result.append("RESULT_OK");
-                 break;
-             case RESULT_CANCELED:
-                 result.append("RESULT_CANCELED");
-                 break;
-             case RESULT_FIRST_USER:
-                 result.append("RESULT_FIRST_USER");
-                 break;
-             case RESULT_CODE_PROFILE_OWNER_SET:
-                 result.append("RESULT_CODE_PROFILE_OWNER_SET");
-                 break;
-             case RESULT_CODE_DEVICE_OWNER_SET:
-                 result.append("RESULT_CODE_DEVICE_OWNER_SET");
-                 break;
-             default:
-                 result.append("UNKNOWN_CODE");
-         }
-         return result.append('(').append(resultCode).append(')').toString();
-     }
+        // Set car-specific properties
+        setCarSetupInProgress(false);
+        Settings.Secure.putInt(getContentResolver(), KEY_ENABLE_INITIAL_NOTICE_SCREEN_TO_USER, 0);
+    }
 
-     private void showErrorMessage(String message) {
-         Log.e(TAG, "Error: " + message);
-         mErrorsTextView.setText(message);
-         findViewById(R.id.errors_container).setVisibility(View.VISIBLE);
-     }
+    private boolean isDeviceProvisioned() {
+        try {
+            return Settings.Global.getInt(getContentResolver(),
+                    Settings.Global.DEVICE_PROVISIONED) == 1;
+        } catch (SettingNotFoundException e) {
+            Log.wtf(TAG, "DEVICE_PROVISIONED is not found.");
+            return false;
+        }
+    }
+
+    private boolean isUserSetupComplete(Context context) {
+        return Settings.Secure.getInt(context.getContentResolver(),
+                Settings.Secure.USER_SETUP_COMPLETE, /* default= */ 0) == 1;
+    }
+
+    private void maybeMarkSystemUserSetupComplete() {
+        Context systemUserContext = getApplicationContext().createContextAsUser(
+                UserHandle.SYSTEM, /* flags= */ 0);
+        if (!isUserSetupComplete(systemUserContext) && getUserId() != UserHandle.USER_SYSTEM
+                && UserManager.isHeadlessSystemUserMode()) {
+            Log.v(TAG, "Marking USER_SETUP_COMPLETE for system user");
+            markUserSetupComplete(systemUserContext);
+        }
+    }
+
+    private void setCarSetupInProgress(boolean inProgress) {
+        Settings.Secure.putInt(getContentResolver(), KEY_SETUP_WIZARD_IN_PROGRESS,
+                inProgress ? 1 : 0);
+    }
+
+    private void markUserSetupComplete(Context context) {
+        Settings.Secure.putInt(context.getContentResolver(),
+                Settings.Secure.USER_SETUP_COMPLETE, 1);
+    }
+
+    private void exitSetup() {
+        Log.d(TAG, "exiting setup early for user " + getUserId());
+        provisionUserAndDevice();
+        notifySetupExited();
+        disableSelfAndFinish();
+    }
+
+    private void notifySetupExited() {
+        Log.d(TAG, "Sending exited setup notification");
+
+        NotificationManager notificationMgr = getSystemService(NotificationManager.class);
+        notificationMgr.createNotificationChannel(new NotificationChannel(
+                IMPORTANCE_DEFAULT_ID, "Importance Default",
+                NotificationManager.IMPORTANCE_DEFAULT));
+        Notification notification = new Notification
+                .Builder(this, IMPORTANCE_DEFAULT_ID)
+                .setContentTitle(getString(R.string.exited_setup_title))
+                .setContentText(getString(R.string.exited_setup_content))
+                .setCategory(Notification.CATEGORY_CAR_INFORMATION)
+                .setSmallIcon(R.drawable.car_ic_mode)
+                .build();
+        notificationMgr.notify(NOTIFICATION_ID, notification);
+    }
+
+    private DpcInfo getSelectedDpcInfo() {
+        return sSupportedDpcApps.get(mDpcAppsSpinner.getSelectedItemPosition());
+    }
+
+    private void launchLegacyProvisioningWorkflow() {
+        DpcInfo dpcInfo = getSelectedDpcInfo();
+        if (!checkDpcAppExists(dpcInfo.packageName)) {
+            showErrorMessage("Cannot provision device because " + dpcInfo.packageName
+                    + " is not available.\n Make sure it's installed for both user 0 and user "
+                    + getUserId());
+            return;
+        }
+
+        Intent intent = new Intent();
+        intent.setComponent(dpcInfo.getLegacyActivityComponentName());
+        Log.i(TAG, "Provisioning device using LEGACY workflow while running as user "
+                + getUserId() + ". DPC: " + dpcInfo + ". Intent: " + intent);
+        startActivityForResult(intent, REQUEST_CODE_STEP1);
+    }
+
+    private void launchProvisioningWorkflow() {
+        DpcInfo dpcInfo = getSelectedDpcInfo();
+
+        Intent intent = new Intent(ACTION_PROVISION_MANAGED_DEVICE_FROM_TRUSTED_SOURCE);
+        // TODO(b/170333009): add a UI with options for EXTRA_PROVISIONING_TRIGGER.
+        intent.putExtra(EXTRA_PROVISIONING_TRIGGER, PROVISIONING_TRIGGER_QR_CODE);
+        intent.putExtra(EXTRA_PROVISIONING_DEVICE_ADMIN_COMPONENT_NAME,
+                dpcInfo.getAdminReceiverComponentName());
+        if (dpcInfo.checkSum != null) {
+            intent.putExtra(EXTRA_PROVISIONING_DEVICE_ADMIN_SIGNATURE_CHECKSUM, dpcInfo.checkSum);
+        }
+        if (dpcInfo.downloadUrl != null) {
+            intent.putExtra(EXTRA_PROVISIONING_DEVICE_ADMIN_PACKAGE_DOWNLOAD_LOCATION,
+                    dpcInfo.downloadUrl);
+        }
+
+        Log.i(TAG, "Provisioning device using NEW workflow while running as user "
+                + getUserId() + ". DPC: " + dpcInfo + ". Intent: " + intent);
+
+        startActivityForResult(intent, REQUEST_CODE_STEP1);
+    }
+
+    private void disableSelfAndFinish() {
+        Log.d(TAG, "disableSelfAndFinish()");
+
+        // Remove this activity from the package manager.
+        PackageManager pm = getPackageManager();
+        ComponentName name = new ComponentName(this, DefaultActivity.class);
+        Log.i(TAG, "Disabling itself (" + name + ") for user " + getUserId());
+        pm.setComponentEnabledSetting(name, PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
+                PackageManager.DONT_KILL_APP);
+
+        finish();
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        Log.d(TAG, "onActivityResult(): request=" + requestCode + ", result="
+                + resultCodeToString(resultCode) + ", data=" + data);
+
+        switch (requestCode) {
+            case REQUEST_CODE_STEP1:
+                onProvisioningStep1Result(resultCode);
+                break;
+            case REQUEST_CODE_STEP2_PO:
+            case REQUEST_CODE_STEP2_DO:
+                onProvisioningStep2Result(requestCode, resultCode);
+                break;
+            default:
+                showErrorMessage("onActivityResult(): invalid request code " + requestCode);
+
+        }
+    }
+
+    private void onProvisioningStep1Result(int resultCode) {
+        int requestCodeStep2;
+        switch (resultCode) {
+            case RESULT_CODE_PROFILE_OWNER_SET:
+                requestCodeStep2 = REQUEST_CODE_STEP2_PO;
+                break;
+            case RESULT_CODE_DEVICE_OWNER_SET:
+                requestCodeStep2 = REQUEST_CODE_STEP2_DO;
+                break;
+            default:
+                showErrorMessage("onProvisioningStep1Result(): invalid result code "
+                        + resultCodeToString(resultCode)
+                        + getManagedProvisioningFailureWarning());
+                return;
+        }
+        Intent intent = new Intent(PROVISION_FINALIZATION_INSIDE_SUW)
+                .addCategory(Intent.CATEGORY_DEFAULT);
+        Log.i(TAG, "Finalizing DPC with " + intent);
+        startActivityForResult(intent, requestCodeStep2);
+    }
+
+    private String getManagedProvisioningFailureWarning() {
+        return "\n\n" + getString(R.string.provision_failure_message);
+    }
+
+    private void onProvisioningStep2Result(int requestCode, int resultCode) {
+        boolean doMode = requestCode == REQUEST_CODE_STEP2_DO;
+        if (resultCode != RESULT_OK) {
+            StringBuilder message = new StringBuilder("onProvisioningStep2Result(): "
+                    + "invalid result code ").append(resultCode);
+            if (doMode) {
+                message.append(getManagedProvisioningFailureWarning());
+            }
+            showErrorMessage(message.toString());
+            return;
+        }
+
+        Log.i(TAG, (doMode ? "Device owner" : "Profile owner") + " mode provisioned!");
+        finishSetup();
+    }
+
+    private static String resultCodeToString(int resultCode)  {
+        StringBuilder result = new StringBuilder();
+        switch (resultCode) {
+            case RESULT_OK:
+                result.append("RESULT_OK");
+                break;
+            case RESULT_CANCELED:
+                result.append("RESULT_CANCELED");
+                break;
+            case RESULT_FIRST_USER:
+                result.append("RESULT_FIRST_USER");
+                break;
+            case RESULT_CODE_PROFILE_OWNER_SET:
+                result.append("RESULT_CODE_PROFILE_OWNER_SET");
+                break;
+            case RESULT_CODE_DEVICE_OWNER_SET:
+                result.append("RESULT_CODE_DEVICE_OWNER_SET");
+                break;
+            default:
+                result.append("UNKNOWN_CODE");
+        }
+        return result.append('(').append(resultCode).append(')').toString();
+    }
+
+    private void showErrorMessage(String message) {
+        Log.e(TAG, "Error: " + message);
+        mErrorsTextView.setText(message);
+        findViewById(R.id.errors_container).setVisibility(View.VISIBLE);
+    }
  }
